@@ -80,8 +80,8 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'dms_1',
-        'USER': 'postgres',
-        'PASSWORD': 'avengers',
+        'USER': '', # ur db username
+        'PASSWORD': '', # your db password
         'HOST': 'localhost',
         'PORT': '5432'
     }
@@ -139,9 +139,7 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': ('knox.auth.TokenAuthentication',),
 }
 
-from datetime import timedelta
-
 REST_KNOX = {
     'USER_SERIALIZER' : 'Users.serializers.UserSerializer',
-    'TOKEN_TTL': timedelta(hours = 24*7)
+    'TOKEN_TTL': None
 }
