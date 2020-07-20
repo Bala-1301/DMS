@@ -1,2 +1,5 @@
+django==3.0.5
 djangorestframework==3.11.0
 django-rest-knox==4.1.0
+bcrypt
+requests

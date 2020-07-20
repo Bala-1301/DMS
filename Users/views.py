@@ -12,7 +12,7 @@ import json
 from .models import *
 from .serializers import *
 
-API_KEY = '' # Get ur key from 2factor.io
+API_KEY = '' # Get ur key from 2factor.in
 
 class UserAccountCreateRequestView(APIView):
 	

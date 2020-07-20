@@ -24,8 +24,9 @@ class UserManager(BaseUserManager):
 		user.save(using=self._db)
 		return user
 
-	def create_superuser(self, phone, email,gender, user_type, password=None):
+	def create_superuser(self, phone, name, email,gender, user_type, password=None):
 		user = self.create_user(
+			name=name,
 			phone=phone,
 			password=password,
 			email=email,
@@ -67,7 +68,7 @@ class User(AbstractBaseUser):
 	is_admin = models.BooleanField(default=False)
 	
 	USERNAME_FIELD = 'phone'
-	REQUIRED_FIELDS = ['email', 'gender', 'user_type']
+	REQUIRED_FIELDS = ['email', 'gender', 'user_type', 'name']
 
 	objects = UserManager()
 
