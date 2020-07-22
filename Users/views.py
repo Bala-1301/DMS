@@ -24,21 +24,21 @@ class UserAccountCreateRequestView(APIView):
 	
 			if User.objects.filter(phone=phone).exists(): # check if the number already exists
 					msg = {
-						'status' : status.HTTP_400_BAD_REQUEST,
 						'detail' : 'User with the given phone number already exists.'
 					}
-					return Response(msg)
+					return Response(msg, status=status.HTTP_400_BAD_REQUEST)
 	
 			else: # if user phone does not exists send OTP
 				msg = sendOTP(request.data)
-				return Response(msg)
-	
+				if(msg['ok']):
+					return Response(msg, status=status.HTTP_200_OK)
+				else:
+					return Response(msg, status=status.HTTP_429_TOO_MANY_REQUESTS)
 		else:
 			msg = {
-				'status': status.HTTP_417_EXPECTATION_FAILED,
 				'detail' : 'Need a phone number with key as \'phone\''
 			}
-			return Response(msg)
+			return Response(msg, status=status.HTTP_417_EXPECTATION_FAILED)
 	
 	
 class UserAccountCreateView(APIView):
@@ -51,14 +51,13 @@ class UserAccountCreateView(APIView):
 			
 			if(request.data['user_type'] == 'Doctor' and 'licence_no' not in request.data):
 				msg = {
-					'status': status.HTTP_417_EXPECTATION_FAILED,
 					'detail' : 'Doctors must have an licence number'
 				} 
-				return Response(msg)
+				return Response(msg, status=status.HTTP_417_EXPECTATION_FAILED)
 
 			msg = verifyOTP(request.data)
-			if( msg['status'] != 200):
-				return Response(msg)
+			if(not msg['ok']):
+				return response(msg, status=status.HTTP_400_BAD_REQUEST)
 
 			phone = request.data['phone']
 			password = request.data['password']
@@ -80,42 +79,36 @@ class UserAccountCreateView(APIView):
 						user = serializer.save()
 						if user:
 							msg = {
-								'status' : status.HTTP_200_OK,
 								'detail'  : "Account created successfully"
 							}
-							return Response(msg)
+							return Response(msg, status=status.HTTP_200_OK)
 						else: 
 							msg = {
-								'status' : status.HTTP_400_BAD_REQUEST,
-								'detail' : 'Internal server error'
+								'detail' : 'Details are not valid'
 							}
-							return Response(msg)
+							return Response(msg, status=status.HTTP_400_BAD_REQUEST)
 					else: 
 						msg = {
-							'status' : status.HTTP_406_NOT_ACCEPTABLE,
 							'detail' : 'Invalid credentials'
 						}	
-						return Response(msg)
+						return Response(msg, status=status.HTTP_406_NOT_ACCEPTABLE)
 				else:
 					msg = {
-						'status' : status.HTTP_400_BAD_REQUEST,
 						'detail': 'The user has not been verified yet.'
 					}
-					return Response(msg)
+					return Response(msg, status=status.HTTP_400_BAD_REQUEST)
 			
 			else:
 				msg = {
-					'status' : status.HTTP_400_BAD_REQUEST,
 					'detail' : 'The user is not verified and not sent any OTP.'
 				}
-				return Response(msg)
+				return Response(msg, status=status.HTTP_400_BAD_REQUEST)
 		
 		else:
 			msg = {
-				'status': status.HTTP_417_EXPECTATION_FAILED,
 				'detail' : 'Insufficient data'
 			}
-			return Response(msg)
+			return Response(msg, status=status.HTTP_417_EXPECTATION_FAILED)
 	
 	def put(self, request, format='json'):
 		keys = ('public_key', 'private_key', 'phone')
@@ -140,22 +133,19 @@ class UserAccountCreateView(APIView):
 					)
 					patient.save()
 				msg = {
-					'status' : status.HTTP_202_ACCEPTED,
 					'detail' : 'Keys set successfully'
 				}
-				return Response(msg)
+				return Response(msg, status=status.HTTP_200_OK)
 			else:
 				msg = {
-					'status' : status.HTTP_400_BAD_REQUEST,
 					'detail' : 'User with the given phone does not exists'
 				}
-				return Response(msg)
+				return Response(msg, status=status.HTTP_400_BAD_REQUEST)
 		else:
 			msg = {
-				'status' : status.HTTP_406_NOT_ACCEPTABLE,
-				'detail' : 'Insufficient data'
+				'detail' : 'Insufficient credentials'
 			}
-			return Response(msg)
+			return Response(msg, status=status.HTTP_406_NOT_ACCEPTABE)
 
 # function to send OTP
 def sendOTP(data):
@@ -175,7 +165,7 @@ def sendOTP(data):
 			count = user.count
 			if count >= 6:
 				msg = {
-					'status' : status.HTTP_429_TOO_MANY_REQUESTS,
+					'ok' : False,
 					'detail': 'Too many attempts. Try again after 24 Hours.'
 				}
 				return msg
@@ -194,7 +184,7 @@ def sendOTP(data):
 		# response = requests.get(url) # comment for testing
 		# resp = response.json()  # comment for testing
 		msg = {
-			'status' : status.HTTP_200_OK,
+			'ok' : True,
 			'detail' : 'OTP sent successfully.'
 		}
 		return msg
@@ -213,19 +203,19 @@ def verifyOTP(data):
 				user.verified = True
 				user.save()
 				msg = {
-						'status' : status.HTTP_200_OK,
+						'ok' : True,
 						'detail' : 'Accepted'
 				}
 				return msg
 			else:
 				msg = {
-					'status': status.HTTP_400_BAD_REQUEST,
+					'ok': False,
 					'detail' : 'OTP does not match.'
 				}
 				return msg
 		else:
 			msg = {
-				'status': status.HTTP_400_BAD_REQUEST,
+				'ok' : False,
 				'detail' : 'Invalid Request'
 			}
 			return msg
@@ -235,12 +225,17 @@ class LoginView(KnoxLoginView):
 	permission_classes = (permissions.AllowAny, )
 	
 	def post(self, request, format='json'):
-		
-		try:
-			serializer = LoginSerializer(data=request.data)
-			serializer.is_valid(raise_exception=True)
-			user = serializer.validated_data['user']
-			login(request, user)
-			return super().post(request, format='json')
-		except ValidationError as err:
-			return Response(err, status=status.HTTP_400_BAD_REQUEST)
+		if('phone' in request.data and 'password' in request.data):
+			try:
+				serializer = LoginSerializer(data=request.data)
+				serializer.is_valid(raise_exception=True)
+				user = serializer.validated_data['user']
+				login(request, user)
+				return super().post(request, format='json')
+			except ValidationError as err:
+				return Response(err, status=status.HTTP_400_BAD_REQUEST)
+		else:
+			msg = {
+				'detail': 'Insufficient credentials'
+			}
+			return Response(msg, status=status.HTTP_400_BAD_REQUEST)

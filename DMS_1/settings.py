@@ -25,7 +25,7 @@ SECRET_KEY = 'yd!e6)t$f^n7%f30)-gsi19+7=*57#$gpse577*nl-v@ds1$z7'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['10.0.2.2', 'localhost', '127.0.0.1', '192.168.43.63']
 
 
 # Application definition
@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'knox',
+    'channels',
 ]
 
 MIDDLEWARE = [
@@ -53,6 +54,17 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'DMS_1.urls'
+
+ASGI_APPLICATION = "DMS_1.routing.application"
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [('localhost', 6379)],
+        },
+    },
+}
 
 TEMPLATES = [
     {
@@ -76,16 +88,7 @@ WSGI_APPLICATION = 'DMS_1.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/3.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'dms_1',
-        'USER': '', # ur db username
-        'PASSWORD': '', # your db password
-        'HOST': 'localhost',
-        'PORT': '5432'
-    }
-}
+
 
 
 # Password validation
