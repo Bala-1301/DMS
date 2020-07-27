@@ -3,9 +3,7 @@ from channels.consumer import AsyncConsumer
 from knox.auth import TokenAuthentication
 
 class DoctorPatientConsumer(AsyncConsumer):
-	authentication_classes = (TokenAuthentication,)
-	permission_classes = (IsAuthenticated,)
-
+	
 	async def websocket_connect(self, event):
 		self.doc = self.scope['url_route']['kwargs']['doctor_id']
 		print(self.scope['user'])

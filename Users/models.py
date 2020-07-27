@@ -2,6 +2,9 @@ from django.db import models
 from django.contrib.auth.base_user import BaseUserManager, AbstractBaseUser
 from django.core.validators import RegexValidator
 from django.utils.translation import gettext_lazy as _
+from django_encrypted_filefield.fields import EncryptedFileField
+from django.dispatch import receiver
+import os
 
 class UserManager(BaseUserManager):
 	
@@ -112,6 +115,41 @@ class PhoneOTP(models.Model):
 	otp = models.CharField(max_length=10)
 	verified = models.BooleanField(default=False)
 	count = models.IntegerField(default=0)
+	doctor_id = models.ForeignKey(Doctor, null=True, blank=True, on_delete=models.SET_NULL)
+	patient_id = models.ForeignKey(Patient, null=True, blank=True, on_delete=models.SET_NULL)
+	has_rights = models.BooleanField(default=False)
+	created_at = models.DateTimeField(auto_now=True)
 
 	def is_verified(self):
 		return self.verified
+
+	def has_rights(self):
+		return self.has_rights
+
+
+class PatientRecord(models.Model):
+	patient_id = models.ForeignKey(to=Patient, on_delete=models.CASCADE)
+	doctor_id = models.ForeignKey(to=Doctor, on_delete=models.SET_NULL, null=True, blank=True)
+	
+	def user_directory_path(instance, filename):
+		return 'Patient_Records/Patient_{0}/{1}'.format(instance.patient_id.patient.id, filename)
+	
+	record = EncryptedFileField(upload_to=user_directory_path)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+
+	def __str__(self):
+		return f'{self.patient_id.patient.name}\'s record. Treated by {self.doctor_id.doctor.name}' 
+	
+@receiver(models.signals.post_delete, sender=PatientRecord)
+def auto_delete_file_on_delete(sender, instance, **kwargs):
+	if instance.record:
+		if os.path.isfile(instance.record.path):
+			os.remove(instance.record.path)
+
+# class UploadRequestOTP(models.Model):
+# 	doctor_id = models.ForeignKey(Doctor, on_delete=models.CASCADE)
+# 	patient_id = models.ForeignKey(Patient, on_delete=models.CASCADE)
+# 	OTP = models.CharField(max_length=10)
+
+	

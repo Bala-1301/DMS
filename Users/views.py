@@ -5,14 +5,22 @@ from django.contrib.auth import login
 from django.contrib.auth.password_validation import validate_password, ValidationError
 from django.views.decorators.csrf import csrf_exempt
 from knox.views import LoginView as KnoxLoginView
+from django_encrypted_filefield.views import FetchView
+from rest_framework.parsers import FileUploadParser
+from rest_framework.permissions import IsAuthenticated
+from knox.auth import TokenAuthentication
+
+from django.contrib.auth.backends import BaseBackend
 import random
 import requests
 import json
+import sys
+import schedule
 
 from .models import *
 from .serializers import *
 
-API_KEY = '' # Get ur key from 2factor.in
+API_KEY = 'a414aed8-bc72-11ea-9fa5-0200cd936042' # Get ur key from 2factor.in
 
 class UserAccountCreateRequestView(APIView):
 	
@@ -29,7 +37,7 @@ class UserAccountCreateRequestView(APIView):
 					return Response(msg, status=status.HTTP_400_BAD_REQUEST)
 	
 			else: # if user phone does not exists send OTP
-				msg = sendOTP(request.data)
+				msg = sendOTP(request.data['phone'])
 				if(msg['ok']):
 					return Response(msg, status=status.HTTP_200_OK)
 				else:
@@ -49,15 +57,21 @@ class UserAccountCreateView(APIView):
 
 		if all(key in request.data for key in keys):
 			
-			if(request.data['user_type'] == 'Doctor' and 'licence_no' not in request.data):
-				msg = {
-					'detail' : 'Doctors must have an licence number'
-				} 
-				return Response(msg, status=status.HTTP_417_EXPECTATION_FAILED)
+			if(request.data['user_type'] == 'Doctor'):
+				if('licence_no' not in request.data):
+					msg = {
+						'detail' : 'Doctors must have an licence number'
+					} 
+					return Response(msg, status=status.HTTP_417_EXPECTATION_FAILED)
+				if(User.objects.filter(licence_no=request.data['licence_no']).exists()):
+					msg = {
+						'detail' : 'A Doctor with the given licence number already exists.'
+					}
+					return Response(msg, status=status.HTTP_400_BAD_REQUEST)
 
 			msg = verifyOTP(request.data)
 			if(not msg['ok']):
-				return response(msg, status=status.HTTP_400_BAD_REQUEST)
+				return Response(msg, status=status.HTTP_400_BAD_REQUEST)
 
 			phone = request.data['phone']
 			password = request.data['password']
@@ -66,22 +80,28 @@ class UserAccountCreateView(APIView):
 			if userSet.exists(): # check if any OTP has been sent to the user
 				user = userSet.first()
 	
-				if user.verified: # if verified create user account
-					
+				if user.is_verified(): # if verified create user account
 					try:
 						validate_password(password, user=request.data) # validating password
 					except ValidationError as err:
 						return Response(err, status=status.HTTP_406_NOT_ACCEPTABLE)
 	
-					user.delete()  # deleting the user entry in PhoneOTP model
 					serializer = UserCreateSerializer(data=request.data) 
 					if serializer.is_valid():
-						user = serializer.save()
-						if user:
-							msg = {
-								'detail'  : "Account created successfully"
-							}
-							return Response(msg, status=status.HTTP_200_OK)
+						created_user = serializer.save()
+						if created_user:
+							user.delete()   # deleting the entry in PhoneOTP model once user is created
+							if (created_user.user_type == 'Doctor'):  #if user is doctor add to doctor model
+								doctor = Doctor.objects.create(
+									doctor = created_user
+								)
+								doctor.save()
+							else: # if patient add to patient model
+								patient = Patient.objects.create(
+									patient = created_user
+								)
+								patient.save()
+							return Response(serializer.data, status=status.HTTP_200_OK)
 						else: 
 							msg = {
 								'detail' : 'Details are not valid'
@@ -89,7 +109,7 @@ class UserAccountCreateView(APIView):
 							return Response(msg, status=status.HTTP_400_BAD_REQUEST)
 					else: 
 						msg = {
-							'detail' : 'Invalid credentials'
+							'detail' : 'User with the given email already exists.'
 						}	
 						return Response(msg, status=status.HTTP_406_NOT_ACCEPTABLE)
 				else:
@@ -110,7 +130,7 @@ class UserAccountCreateView(APIView):
 			}
 			return Response(msg, status=status.HTTP_417_EXPECTATION_FAILED)
 	
-	def put(self, request, format='json'):
+	def put(self, request, format='json'): # put method for adding the encryption keys
 		keys = ('public_key', 'private_key', 'phone')
 		if all(key in request.data for key in keys):
 
@@ -122,16 +142,7 @@ class UserAccountCreateView(APIView):
 				user.encrypted_private_key = request.data['private_key']
 				user.ready = True
 				user.save()
-				if (user.user_type == 'Doctor'):
-					doctor = Doctor.objects.create(
-						doctor = user
-					)
-					doctor.save()
-				else:
-					patient = Patient.objects.create(
-						patient = user
-					)
-					patient.save()
+				
 				msg = {
 					'detail' : 'Keys set successfully'
 				}
@@ -148,8 +159,7 @@ class UserAccountCreateView(APIView):
 			return Response(msg, status=status.HTTP_406_NOT_ACCEPTABE)
 
 # function to send OTP
-def sendOTP(data):
-		phone = data['phone']
+def sendOTP(phone):
 		# OTP = random.randint(999, 9999) #comment this while testing
 		OTP = '1234' # uncomment for testing
 		url = "https://2factor.in/API/V1/{0}/SMS/+91{1}/{2}".format(API_KEY, phone, OTP)
@@ -226,16 +236,296 @@ class LoginView(KnoxLoginView):
 	
 	def post(self, request, format='json'):
 		if('phone' in request.data and 'password' in request.data):
-			try:
-				serializer = LoginSerializer(data=request.data)
-				serializer.is_valid(raise_exception=True)
+			serializer = LoginSerializer(data=request.data)
+			if(serializer.is_valid()):
 				user = serializer.validated_data['user']
 				login(request, user)
 				return super().post(request, format='json')
-			except ValidationError as err:
-				return Response(err, status=status.HTTP_400_BAD_REQUEST)
+			else:
+				return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 		else:
 			msg = {
 				'detail': 'Insufficient credentials'
 			}
 			return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+
+class RecordUploadRequestView(APIView):
+	authentication_classes = (TokenAuthentication,)  # Authentication using Knox
+	permission_classes = (IsAuthenticated,)
+	
+	def post(self, request, format='json'):
+
+		if(request.user.user_type != 'Doctor'):
+			msg = {
+				'detail' : "Only doctors can send upload requests."
+			}
+			return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+		
+		
+		if('patient_phone' not in request.data):
+			msg = {
+				'detail' : 'Patient phone number has to be sent with a key \'patient_phone\''
+			}
+			return Response(msg, status=status.HTTP_417_EXPECTATION_FAILED)
+
+		
+		doctor = Doctor.objects.get(doctor=request.user)
+
+		patient_phone = request.data['patient_phone']
+		userSet = User.objects.filter(phone=patient_phone)
+
+		if(userSet.exists()):
+			user_patient = userSet.first()
+			msg = sendOTP(patient_phone)
+			if(msg['ok']):
+				patient = Patient.objects.get(patient=user_patient)
+				otpAccount = PhoneOTP.objects.get(phone=patient_phone)
+				otpAccount.doctor_id = doctor
+				otpAccount.patient_id = patient
+				otpAccount.save()
+				return Response(msg, status=status.HTTP_200_OK)
+			else:
+				return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+			
+		else:
+			msg = {
+				'detail' : 'Patient with the given phone does not exist.'
+			}
+			return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+		
+
+class OTPVerificationView(APIView):  # view for uploading patient records 
+	authentication_classes = (TokenAuthentication,)  # Authentication using Knox
+	permission_classes = (IsAuthenticated,)
+	
+	def post(self, request, format='json'):
+		if(request.user.user_type != "Doctor"):  # checks if the request is from a doctor
+			msg = {
+				'detail' : 'Only doctors can upload records.'
+			}
+			return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+		
+		if('patient_phone' not in request.data and 'OTP' not in request.data):
+			msg = {
+				'detail' : 'Insufficient data.'
+			}
+			return Response(msg, status=status.HTTP_417_EXPECTATION_FAILED)
+
+		patient_phone = request.data['patient_phone']
+		otp = request.data['OTP']
+
+		userSet = User.objects.filter(phone=patient_phone)
+
+		if(not userSet.exists()):
+			msg = {
+				'detail' : 'Invalid patient phone.'
+			}
+			return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+		
+		user_patient = userSet.first()
+		patientSet = Patient.objects.filter(patient=user_patient)
+		
+		if not patientSet.exists():
+			msg = {
+				'detail' : 'The given patient id does not belong to a patient.'
+			}
+			return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+		
+		patient = patientSet.first()
+		
+		doctor = Doctor.objects.get(doctor=request.user)
+		
+		otpAccountSet = PhoneOTP.objects.filter(doctor_id=doctor, patient_id=patient)
+
+		if otpAccountSet.exists():
+			otpAccount = otpAccountSet.first()
+			if(otp == otpAccount.otp):
+				otpAccount.upload_verified = True
+				otpAccount.save()
+				msg = {
+					'detail' : 'The Doctor can access and upload records for the patient for the next two hours.'
+				}
+				return Response(msg, status=status.HTTP_200_OK)
+			else:
+				msg = {
+					'detail' : 'Invalid OTP.'
+				}
+				return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+		else:
+			msg = {
+				'detail' : 'The doctor and patient doesn\'t share an OTP account.'
+			}				
+			return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+
+class UploadRecordView(APIView):
+	authentication_classes = (TokenAuthentication,)  # Authentication using Knox
+	permission_classes = (IsAuthenticated,)
+	# parser_classes = (FileUploadParser,) #parses the native files that is uploaded
+
+	def post(self, request, format='json'):
+		
+		if(request.user.user_type != "Doctor"):  # checks if the request is from a doctor
+			msg = {
+				'detail' : 'Only doctors can upload records.'
+			}
+			return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+		
+		if('patient_phone' not in request.data and 'file' not in request.FILES):
+			msg = {
+				'detail' : 'Insufficient data.'
+			}
+			return Response(msg, status=status.HTTP_417_EXPECTATION_FAILED)
+		
+		patient_phone = request.data['patient_phone']
+		userSet = User.objects.filter(phone=patient_phone)
+		if not userSet.exists():
+			msg = {
+				'detail' : 'A patient with the given phone doesn\'t exist.'
+			}
+			return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+
+		user = userSet.first()
+		patientSet = Patient.objects.filter(patient=user)
+		
+		if not patientSet.exists():
+			msg = {
+				'detail' : 'The given phone does not belong to a patient.'
+			}
+			return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+		
+		patient = patientSet.first()
+		
+		doctor = Doctor.objects.get(doctor=request.user)
+
+		otpAccountSet = PhoneOTP.objects.filter(doctor_id=doctor, patient_id = patient)
+		if(otpAccountSet.exists()):
+			otpAccount = otpAccountSet.first()
+			if (otpAccount.has_rights()):
+				record = PatientRecord.objects.create(   
+					patient_id=patient,
+					doctor_id=doctor,
+					record=request.FILES['file'] 
+				)
+				record.save()
+				msg = {
+					'detail' : 'Record added successfully!'
+				}
+				return Response(msg, status=status.HTTP_200_OK)
+			else:
+				msg = {
+					'detail' : 'OTP verification is not done.'
+				}
+				return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+		else:
+			msg = {
+				'detail' : 'The Doctor and the Patient doesn\'t share an OTP Account.'
+			}
+			return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+
+
+class GetPatientRecordView(APIView):
+	authentication_classes = (TokenAuthentication,)  # Authentication using Knox
+	permission_classes = (IsAuthenticated,)
+	
+	def get(self, request, format='none'):
+		if(request.user.user_type == 'Patient'):
+			patient = Patient.objects.get(patient=request.user)
+			records = PatientRecord.objects.filter(patient_id=patient)
+			try:
+				serializer = PatientRecordSerializer(data=records, many=True)
+				serializer.is_valid()
+				return Response(serializer.data, status=status.HTTP_200_OK)
+			except:
+				msg = {
+					'detail' : 'Some error occurred. Please Try again.'
+				}
+				return Response(msg, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+		else:
+			if 'patient_phone' not in request.data:
+				msg = {
+					'detail' : 'Missing patient phone.'
+				}
+				return Response(msg, status=status.HTTP_417_EXPECTATION_FAILED)
+			
+			patient_phone = request.data['patient_phone']
+			userSet = User.objects.filter(phone=patient_phone)
+			if not userSet.exists():
+				msg = {
+					'detail' : 'A patient with the given phone doesn\'t exist.'
+				}
+				return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+
+			user = userSet.first()
+			patientSet = Patient.objects.filter(patient=user)
+			
+			if not patientSet.exists():
+				msg = {
+					'detail' : 'The given phone does not belong to a patient.'
+				}
+				return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+			
+			patient = patientSet.first()
+
+			doctor = Doctor.objects.get(doctor=request.user)
+
+			otpAccountSet = PhoneOTP.objects.filter(doctor_id=doctor, patient_id = patient)
+
+			if(otpAccountSet.exists()):
+				otpAccount = otpAccountSet.first()
+				if (otpAccount.has_rights()):
+					records = PatientRecord.objects.filter(patient_id=patient)
+					try:
+						serializer = PatientRecordSerializer(data=records, many=True)
+						serializer.is_valid()
+						return Response(serializer.data, status=status.HTTP_200_OK)
+					except:
+						msg = {
+							'detail' : 'Some error occurred. Please Try again.'
+						}
+						return Response(msg, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+				else:
+					msg = {
+						'detail' : 'OTP verification is not done.'
+					}
+					return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+			else:
+				msg = {
+					'detail' : 'The Doctor and the Patient doesn\'t share an OTP Account.'
+				}
+				return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+
+
+class GetTreatmentHistoryView(APIView):
+	authentication_classes = (TokenAuthentication,)  # Authentication using Knox
+	permission_classes = (IsAuthenticated,)
+
+	def get(self, request, format='json'):
+		if request.user.user_type != 'Doctor':
+			msg = {
+				'detail' : 'Invalid request.'
+			}
+			return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+
+		doctor = Doctor.objects.get(doctor=request.user)
+
+		records = PatientRecord.objects.filter(doctor_id=doctor)
+		try:
+			serializer = DoctorHistorySerializer(data=records, many=True)
+			serializer.is_valid()
+			return Response(serializer.data, status=status.HTTP_200_OK)
+		except:
+			msg = {
+				'detail' : 'Some error occurred. Please Try again.'
+			}
+			return Response(msg, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+			
+	
+
+
+class PermissionView(APIView):
+	authentication_classes = (TokenAuthentication,)  # Authentication using Knox
+	permission_classes = (IsAuthenticated,)
+	
+	
+class MyFetchView(PermissionView, FetchView): # view for decrypting the file 
+	pass

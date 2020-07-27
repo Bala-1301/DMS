@@ -88,7 +88,16 @@ WSGI_APPLICATION = 'DMS_1.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/3.0/ref/settings/#databases
 
-
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'dms_1',
+        'USER': 'postgres', # ur db username
+        'PASSWORD': 'avengers', # your db password
+        'HOST': 'localhost',
+        'PORT': '5432'
+    }
+}
 
 
 # Password validation
@@ -100,6 +109,9 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {
+            'min_length': 8,
+        }
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
@@ -146,3 +158,7 @@ REST_KNOX = {
     'USER_SERIALIZER' : 'Users.serializers.UserSerializer',
     'TOKEN_TTL': None
 }
+
+DEFF_SALT = "OCTUD#$23DFas"
+DEFF_PASSWORD = "QWERTY!@#$"
+DEFF_FETCH_URL_NAME = "record"
