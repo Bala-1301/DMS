@@ -6,16 +6,19 @@ from django.contrib.auth.password_validation import validate_password, Validatio
 from django.views.decorators.csrf import csrf_exempt
 from knox.views import LoginView as KnoxLoginView
 from django_encrypted_filefield.views import FetchView
-from rest_framework.parsers import FileUploadParser
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from knox.auth import TokenAuthentication
+from django.utils import timezone
 
-from django.contrib.auth.backends import BaseBackend
 import random
 import requests
 import json
 import sys
 import schedule
+from datetime import datetime, timedelta
+import time
+import threading
 
 from .models import *
 from .serializers import *
@@ -27,27 +30,46 @@ class UserAccountCreateRequestView(APIView):
 	# Get request for getting the phone number of user and sending OTP (requires a phone number)
 	def post(self, request, format='json'):
 		
-		if 'phone' in request.data:
-			phone = request.data['phone']
-	
-			if User.objects.filter(phone=phone).exists(): # check if the number already exists
+		if 'phone' not in request.data and 'user_type' not in request.data:
+			msg = {
+				'detail' : 'Insufficient credentials'
+			}
+			return Response(msg, status=status.HTTP_417_EXPECTATION_FAILED)
+		
+		if request.data['user_type'] == 'Doctor':
+			if 'licence_no' not in request.data:
+				msg = {
+				'detail' : 'Doctors must have an licence number'
+				}
+				return Response(msg, status=status.HTTP_417_EXPECTATION_FAILED)
+			else:
+				if(User.objects.filter(licence_no=request.data['licence_no']).exists()):
 					msg = {
-						'detail' : 'User with the given phone number already exists.'
+						'detail' : 'Doctor with the given licence number already exists.'
 					}
 					return Response(msg, status=status.HTTP_400_BAD_REQUEST)
 	
-			else: # if user phone does not exists send OTP
-				msg = sendOTP(request.data['phone'])
-				if(msg['ok']):
-					return Response(msg, status=status.HTTP_200_OK)
-				else:
-					return Response(msg, status=status.HTTP_429_TOO_MANY_REQUESTS)
-		else:
-			msg = {
-				'detail' : 'Need a phone number with key as \'phone\''
-			}
-			return Response(msg, status=status.HTTP_417_EXPECTATION_FAILED)
+		if 'email' in request.data:
+			if User.objects.filter(email=request.data['email']).exists():
+				msg = {
+					'detail' : 'User with the given email already exists.'
+				}
+				return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+
+			
+		if User.objects.filter(phone=request.data['phone']).exists(): # check if the number already exists
+				msg = {
+					'detail' : 'User with the given phone number already exists.'
+				}
+				return Response(msg, status=status.HTTP_400_BAD_REQUEST)
 	
+			 # if user does not exists send OTP
+		msg = sendOTP(request.data['phone'])
+		if(msg['ok']):
+			return Response(msg, status=status.HTTP_200_OK)
+		else:
+			return Response(msg, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
 	
 class UserAccountCreateView(APIView):
 	
@@ -68,6 +90,14 @@ class UserAccountCreateView(APIView):
 						'detail' : 'A Doctor with the given licence number already exists.'
 					}
 					return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+
+			if('email' in request.data):
+				if(User.objects.filter(email=request.data['email']).exists()):
+					msg = {
+						'detail' : 'User with the given email already exists.'
+					}
+					return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+
 
 			msg = verifyOTP(request.data)
 			if(not msg['ok']):
@@ -109,7 +139,7 @@ class UserAccountCreateView(APIView):
 							return Response(msg, status=status.HTTP_400_BAD_REQUEST)
 					else: 
 						msg = {
-							'detail' : 'User with the given email already exists.'
+							'detail' : 'Invalid data.'
 						}	
 						return Response(msg, status=status.HTTP_406_NOT_ACCEPTABLE)
 				else:
@@ -360,17 +390,15 @@ class OTPVerificationView(APIView):  # view for uploading patient records
 class UploadRecordView(APIView):
 	authentication_classes = (TokenAuthentication,)  # Authentication using Knox
 	permission_classes = (IsAuthenticated,)
-	# parser_classes = (FileUploadParser,) #parses the native files that is uploaded
+	parser_classes = (MultiPartParser,) #parses the native files that is uploaded
 
 	def post(self, request, format='json'):
-		
 		if(request.user.user_type != "Doctor"):  # checks if the request is from a doctor
 			msg = {
 				'detail' : 'Only doctors can upload records.'
 			}
 			return Response(msg, status=status.HTTP_400_BAD_REQUEST)
-		
-		if('patient_phone' not in request.data and 'file' not in request.FILES):
+		if('patient_phone' not in request.data or 'file' not in request.FILES):
 			msg = {
 				'detail' : 'Insufficient data.'
 			}
@@ -396,16 +424,19 @@ class UploadRecordView(APIView):
 		patient = patientSet.first()
 		
 		doctor = Doctor.objects.get(doctor=request.user)
-
+		print(request.data['file'])
 		otpAccountSet = PhoneOTP.objects.filter(doctor_id=doctor, patient_id = patient)
 		if(otpAccountSet.exists()):
 			otpAccount = otpAccountSet.first()
+			file = request.data['file']
 			if (otpAccount.has_rights()):
 				record = PatientRecord.objects.create(   
 					patient_id=patient,
 					doctor_id=doctor,
-					record=request.FILES['file'] 
+					record=file,
+					record_name=file.name
 				)
+				
 				record.save()
 				msg = {
 					'detail' : 'Record added successfully!'
@@ -427,7 +458,7 @@ class GetPatientRecordView(APIView):
 	authentication_classes = (TokenAuthentication,)  # Authentication using Knox
 	permission_classes = (IsAuthenticated,)
 	
-	def get(self, request, format='none'):
+	def get(self, request, *args, **kwargs):
 		if(request.user.user_type == 'Patient'):
 			patient = Patient.objects.get(patient=request.user)
 			records = PatientRecord.objects.filter(patient_id=patient)
@@ -441,13 +472,9 @@ class GetPatientRecordView(APIView):
 				}
 				return Response(msg, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 		else:
-			if 'patient_phone' not in request.data:
-				msg = {
-					'detail' : 'Missing patient phone.'
-				}
-				return Response(msg, status=status.HTTP_417_EXPECTATION_FAILED)
 			
-			patient_phone = request.data['patient_phone']
+			patient_phone = kwargs.get("patient_phone")
+			
 			userSet = User.objects.filter(phone=patient_phone)
 			if not userSet.exists():
 				msg = {
@@ -520,12 +547,51 @@ class GetTreatmentHistoryView(APIView):
 			return Response(msg, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 			
 	
+class CustomPermission(permissions.BasePermission):
 
+	def has_permission(self, request, view):
+		if 'Authorization' in request.headers:
+			knoxAuth = TokenAuthentication()
+			user, auth_token = knoxAuth.authenticate(request)
+			if user:
+				patient_id = request.path.split("/")[-2].split("_")[1]
+				if user.user_type == 'Patient':
+					if(user.id == int(patient_id)):
+						return True
+					else:
+						return False
+				else:
+					doctor = Doctor.objects.get(doctor=user)
+					user_patient = User.objects.get(id=int(patient_id))
+					patient = Patient.objects.get(patient=user_patient)
+					otpAccountSet = PhoneOTP.objects.filter(patient_id=patient, doctor_id=doctor)
+					if otpAccountSet.exists():
+						otpAccount = otpAccountSet.first()
+						if otpAccount.has_rights():
+							return True
+						else:
+							return False
+					else:
+							return False
+			else:
+				return False
 
 class PermissionView(APIView):
-	authentication_classes = (TokenAuthentication,)  # Authentication using Knox
+	authentication_classes = (TokenAuthentication,)
 	permission_classes = (IsAuthenticated,)
+	permission_classes = [CustomPermission]
 	
 	
 class MyFetchView(PermissionView, FetchView): # view for decrypting the file 
 	pass
+
+
+def clearOTP():
+	otpAccountSet = PhoneOTP.objects.all()
+	for otpAccount in otpAccountSet:
+		hours = timedelta(hours=2)
+		current_time = timezone.now()
+		if otpAccount.created_at+hours <= current_time:
+			print("Deleting...")
+			otpAccount.delete()
+

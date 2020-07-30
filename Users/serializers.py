@@ -90,7 +90,7 @@ class PatientRecordSerializer(serializers.ModelSerializer):
 	
 	class Meta:
 		model = PatientRecord
-		fields = ('id', 'doctor_id', 'record', 'created_at')
+		fields = ('id', 'doctor_id', 'record', 'record_name', 'created_at')
 
 class PatientDataSerializer(serializers.ModelSerializer):
 
@@ -100,17 +100,17 @@ class PatientDataSerializer(serializers.ModelSerializer):
 
 
 class PatientSerializer(serializers.ModelSerializer):
-	doctor = PatientDataSerializer()
+	patient = PatientDataSerializer()
 
 	class Meta:
-		model = Doctor
-		fields = ('id', 'doctor')
+		model = Patient
+		fields = ('id', 'patient')
 
 
 class DoctorHistorySerializer(serializers.ModelSerializer):
 
-	patient_id = PatientSerializer
+	patient_id = PatientSerializer()
 
 	class Meta:
 		model = PatientRecord
-		fields = ('id', 'patient_id', 'created_at')
+		fields = ('id', 'patient_id', 'created_at', 'record_name')

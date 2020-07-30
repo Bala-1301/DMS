@@ -8,7 +8,7 @@ import os
 
 class UserManager(BaseUserManager):
 	
-	def create_user(self, phone=None, password=None, name=None, email=None, user_type=None, gender=None, is_active=True, is_admin=False):
+	def create_user(self, phone=None, password=None, name=None, email=None, user_type=None, gender=None, is_active=True, is_admin=False, licence_no=None):
 		if not phone:
 			raise ValueError("User must have a phone number")
 		if not password:
@@ -24,6 +24,8 @@ class UserManager(BaseUserManager):
 		user.gender = gender
 		user.is_active = is_active
 		user.is_admin = is_admin
+		if licence_no is not None:
+			user.licence_no = licence_no
 		user.save(using=self._db)
 		return user
 
@@ -135,6 +137,7 @@ class PatientRecord(models.Model):
 		return 'Patient_Records/Patient_{0}/{1}'.format(instance.patient_id.patient.id, filename)
 	
 	record = EncryptedFileField(upload_to=user_directory_path)
+	record_name = models.CharField(max_length=150, default=record.name)
 	created_at = models.DateTimeField(auto_now_add=True)
 
 
@@ -147,9 +150,5 @@ def auto_delete_file_on_delete(sender, instance, **kwargs):
 		if os.path.isfile(instance.record.path):
 			os.remove(instance.record.path)
 
-# class UploadRequestOTP(models.Model):
-# 	doctor_id = models.ForeignKey(Doctor, on_delete=models.CASCADE)
-# 	patient_id = models.ForeignKey(Patient, on_delete=models.CASCADE)
-# 	OTP = models.CharField(max_length=10)
 
 	

@@ -7,3 +7,5 @@ channels==2.4.0
 channels_redis
 django_encrypted_filefield
 python-magic-bin
+schedule
+apscheduler
