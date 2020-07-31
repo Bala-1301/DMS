@@ -69,6 +69,25 @@ class LoginSerializer(serializers.Serializer):
 			}
 			raise serializers.ValidationError(msg)
 
+class PDFBase64File(Base64FileField):
+    ALLOWED_TYPES = ['pdf']
+
+    def get_file_extension(self, filename, decoded_file):
+        try:
+            PyPDF2.PdfFileReader(io.BytesIO(decoded_file))
+        except PyPDF2.utils.PdfReadError as e:
+            logger.warning(e)
+        else:
+            return 'pdf'
+
+class RecordUploadSerializer(serializers.ModelSerializer):
+
+	record = PDFBase64File()
+
+	class Meta:
+		Model = PatientRecord
+		fields = (patient_id, doctor_id, record)
+
 
 class DoctorDataSerializer(serializers.ModelSerializer):
 

@@ -15,7 +15,6 @@ import random
 import requests
 import json
 import sys
-import schedule
 from datetime import datetime, timedelta
 import time
 import threading
@@ -428,20 +427,33 @@ class UploadRecordView(APIView):
 		otpAccountSet = PhoneOTP.objects.filter(doctor_id=doctor, patient_id = patient)
 		if(otpAccountSet.exists()):
 			otpAccount = otpAccountSet.first()
-			file = request.data['file']
 			if (otpAccount.has_rights()):
-				record = PatientRecord.objects.create(   
-					patient_id=patient,
-					doctor_id=doctor,
-					record=file,
-					record_name=file.name
-				)
+				request.data['patient_id'] = patient
+				request.data['doctor_id'] = doctor
+				serializer = RecordUploadSerializer(data=request.data)
+				serializer.record_name = serializer.record.name
+				if(serializer.is_valid()):
+					
+					serializer.save()
+			# file = request.data['file']
+			# if (otpAccount.has_rights()):
+			# 	record = PatientRecord.objects.create(   
+			# 		patient_id=patient,
+			# 		doctor_id=doctor,
+			# 		record=file,
+			# 		record_name=file.name
+			# 	)
 				
-				record.save()
-				msg = {
-					'detail' : 'Record added successfully!'
+			# 	record.save()
+					msg = {
+						'detail' : 'Record added successfully!'
+					}
+					return Response(msg, status=status.HTTP_200_OK)
+				else:
+					msg = {
+					'detail' : 'OTP verification is not done.'
 				}
-				return Response(msg, status=status.HTTP_200_OK)
+				return Response(msg, status=status.HTTP_400_BAD_REQUEST)
 			else:
 				msg = {
 					'detail' : 'OTP verification is not done.'
@@ -474,7 +486,7 @@ class GetPatientRecordView(APIView):
 		else:
 			
 			patient_phone = kwargs.get("patient_phone")
-			
+
 			userSet = User.objects.filter(phone=patient_phone)
 			if not userSet.exists():
 				msg = {
