@@ -6,7 +6,7 @@ from django.contrib.auth.password_validation import validate_password, Validatio
 from django.views.decorators.csrf import csrf_exempt
 from knox.views import LoginView as KnoxLoginView
 from django_encrypted_filefield.views import FetchView
-from rest_framework.parsers import MultiPartParser
+from rest_framework.parsers import MultiPartParser, FileUploadParser
 from rest_framework.permissions import IsAuthenticated
 from knox.auth import TokenAuthentication
 from django.utils import timezone
@@ -389,21 +389,21 @@ class OTPVerificationView(APIView):  # view for uploading patient records
 class UploadRecordView(APIView):
 	authentication_classes = (TokenAuthentication,)  # Authentication using Knox
 	permission_classes = (IsAuthenticated,)
-	parser_classes = (MultiPartParser,) #parses the native files that is uploaded
+	parser_classes = (FileUploadParser,) #parses the native files that is uploaded
 
-	def post(self, request, format='json'):
+	def post(self, request, format='json', *args, **kwargs):
 		if(request.user.user_type != "Doctor"):  # checks if the request is from a doctor
 			msg = {
 				'detail' : 'Only doctors can upload records.'
 			}
 			return Response(msg, status=status.HTTP_400_BAD_REQUEST)
-		if('patient_phone' not in request.data or 'file' not in request.FILES):
+		if('file' not in request.FILES):
 			msg = {
 				'detail' : 'Insufficient data.'
 			}
 			return Response(msg, status=status.HTTP_417_EXPECTATION_FAILED)
 		
-		patient_phone = request.data['patient_phone']
+		patient_phone = kwargs['patient_phone']
 		userSet = User.objects.filter(phone=patient_phone)
 		if not userSet.exists():
 			msg = {
@@ -428,32 +428,20 @@ class UploadRecordView(APIView):
 		if(otpAccountSet.exists()):
 			otpAccount = otpAccountSet.first()
 			if (otpAccount.has_rights()):
-				request.data['patient_id'] = patient
-				request.data['doctor_id'] = doctor
-				serializer = RecordUploadSerializer(data=request.data)
-				serializer.record_name = serializer.record.name
-				if(serializer.is_valid()):
-					
-					serializer.save()
-			# file = request.data['file']
-			# if (otpAccount.has_rights()):
-			# 	record = PatientRecord.objects.create(   
-			# 		patient_id=patient,
-			# 		doctor_id=doctor,
-			# 		record=file,
-			# 		record_name=file.name
-			# 	)
+				file = request.FILES['file']
+				record = PatientRecord.objects.create(   
+					patient_id=patient,
+					doctor_id=doctor,
+					record=file,
+					record_name=file.name
+				)
 				
-			# 	record.save()
-					msg = {
-						'detail' : 'Record added successfully!'
-					}
-					return Response(msg, status=status.HTTP_200_OK)
-				else:
-					msg = {
-					'detail' : 'OTP verification is not done.'
+				record.save()
+				msg = {
+					'detail' : 'Record added successfully!'
 				}
-				return Response(msg, status=status.HTTP_400_BAD_REQUEST)
+				return Response(msg, status=status.HTTP_200_OK)
+				
 			else:
 				msg = {
 					'detail' : 'OTP verification is not done.'
