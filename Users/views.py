@@ -391,13 +391,13 @@ class UploadRecordView(APIView):
 	permission_classes = (IsAuthenticated,)
 	parser_classes = (FileUploadParser,) #parses the native files that is uploaded
 
-	def post(self, request, format='json', *args, **kwargs):
+	def put(self, request, filename, format='json', *args, **kwargs):
 		if(request.user.user_type != "Doctor"):  # checks if the request is from a doctor
 			msg = {
 				'detail' : 'Only doctors can upload records.'
 			}
 			return Response(msg, status=status.HTTP_400_BAD_REQUEST)
-		if('file' not in request.FILES):
+		if('file' not in request.data):
 			msg = {
 				'detail' : 'Insufficient data.'
 			}
@@ -424,16 +424,16 @@ class UploadRecordView(APIView):
 		
 		doctor = Doctor.objects.get(doctor=request.user)
 		print(request.data['file'])
-		otpAccountSet = PhoneOTP.objects.filter(doctor_id=doctor, patient_id = patient)
+		otpAccountSet = PhoneOTP.objects.filter(doctor_id=doctor, patient_id=patient)
 		if(otpAccountSet.exists()):
 			otpAccount = otpAccountSet.first()
 			if (otpAccount.has_rights()):
-				file = request.FILES['file']
+				file = request.data['file']
 				record = PatientRecord.objects.create(   
 					patient_id=patient,
 					doctor_id=doctor,
 					record=file,
-					record_name=file.name
+					record_name=filename
 				)
 				
 				record.save()
