@@ -101,12 +101,22 @@ class User(AbstractBaseUser):
 
 class Doctor(models.Model):
 	doctor = models.OneToOneField(User, on_delete=models.CASCADE) 
+	specialization = models.CharField(max_length=128, null=True, blank=True)
+	hospital = models.CharField(max_length=64, null=True, blank=True)
 
 	def __str__(self):
 		return f"{self.doctor.name} | Licence_no : {self.doctor.licence_no} | Phone : {self.doctor.phone}"  
 	
 class Patient(models.Model):
 	patient = models.OneToOneField(User, on_delete=models.CASCADE)
+	age = models.IntegerField(null=True, blank=True)
+	height = models.FloatField(null=True, blank=True)
+	weight = models.FloatField(null=True, blank=True)
+	bmi = models.FloatField(null=True, blank=True)
+	blood_group = models.CharField(max_length=3, null=True, blank=True)
+	blood_pressure = models.CharField(max_length=10, null=True, blank=True)
+	setbacks = models.CharField(max_length=500, null=True, blank=True)
+	last_modified = models.DateTimeField(auto_now=True)
 
 	def __str__(self):
 		return f"{self.patient.name} | Phone : {self.patient.phone}"

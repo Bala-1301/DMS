@@ -30,7 +30,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
 		extra_kwargs = {'password' : {'write_only' : True }}
 
 class UserSerializer(serializers.ModelSerializer):
-
+	
 	class Meta:
 		model = User
 		fields = ('id', 'phone', 'name', 'email', 'gender', 'user_type', 'licence_no')
@@ -82,7 +82,7 @@ class DoctorSerializer(serializers.ModelSerializer):
 
 	class Meta:
 		model = Doctor
-		fields = ('id', 'doctor')
+		fields = ('id', 'doctor', 'hospital', 'specialization')
 
 class PatientRecordSerializer(serializers.ModelSerializer):
 	
@@ -100,6 +100,12 @@ class PatientDataSerializer(serializers.ModelSerializer):
 
 
 class PatientSerializer(serializers.ModelSerializer):
+
+	class Meta:
+		model = Patient
+		exclude = ['patient', 'id']
+
+class PatientDoctorSerializer(serializers.ModelSerializer):
 	patient = PatientDataSerializer()
 
 	class Meta:
@@ -107,9 +113,10 @@ class PatientSerializer(serializers.ModelSerializer):
 		fields = ('id', 'patient')
 
 
+
 class DoctorHistorySerializer(serializers.ModelSerializer):
 
-	patient_id = PatientSerializer()
+	patient_id = PatientDoctorSerializer()
 
 	class Meta:
 		model = PatientRecord

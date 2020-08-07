@@ -1,6 +1,6 @@
 from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
-from .views import clearOTP
+from .views.accountViews import clearOTP
 
 def start():
     scheduler = BackgroundScheduler()

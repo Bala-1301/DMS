@@ -139,7 +139,7 @@ USE_I18N = True
 
 USE_L10N = True
 
-USE_TZ = True
+USE_TZ = False
 
 
 # Static files (CSS, JavaScript, Images)
@@ -159,6 +159,6 @@ REST_KNOX = {
     'TOKEN_TTL': None
 }
 
-DEFF_SALT = "OCTUD#$23DFas"
+DEFF_SALT = "OCTUD#$23qj&g##(62DFas"
 DEFF_PASSWORD = "QWERTY!@#$"
 DEFF_FETCH_URL_NAME = "record"
